@@ -1,0 +1,317 @@
+import Generators.LCGExpGenerator;
+import eduni.simjava.Sim_entity;
+import eduni.simjava.Sim_port;
+import eduni.simjava.Sim_system;
+
+public class Source extends Sim_entity {
+  private Sim_port out;
+	private LCGExpGenerator delay;
+
+	public Source(String name) {
+		super(name);
+		// TODO Auto-generated constructor stub
+		out = new Sim_port("Out"); // Create the port
+		add_port(out);
+		delay = new LCGExpGenerator(System.currentTimeMillis(), 1);
+
+	}
+
+	public void body() {
+		double delayRand;
+		while (Sim_system.running()) {
+			// Send the processor a job
+			sim_schedule(out, 0.0, 0);
+			// Pause for exponential random time
+			delayRand = delay.next();
+			sim_pause(delayRand/(double)60);
+		}
+	}
+}
+
+import java.util.List;
+
+import eduni.simjava.Sim_entity;
+import eduni.simjava.Sim_event;
+import eduni.simjava.Sim_port;
+import eduni.simjava.Sim_stat;
+import eduni.simjava.Sim_system;
+
+public class Sink extends Sim_entity {
+  private Sim_port in;
+	private Sim_stat stat;
+
+	public Sink(String name) {
+		super(name);
+		// TODO Auto-generated constructor stub
+		in = new Sim_port("In");
+		add_port(in);
+		stat = new Sim_stat();
+		stat.add_measure(Sim_stat.ARRIVAL_RATE);
+		set_stat(stat);
+	}
+	
+	@Override
+	public void body() {
+		// TODO Auto-generated method stub
+		while (Sim_system.running()) {
+            Sim_event e = new Sim_event();
+            // Get the next event
+            sim_get_next(e);
+            // Process the event
+            sim_process(0);
+            // The event has completed service
+            sim_completed(e);
+          }
+		System.out.println("Sink");
+		List[] data = stat.get_data();
+		List arriv = (List) data[1].get(0);
+		//prininting response time
+		for (int i = 0; i < arriv.size(); i++) {
+			double arrival  = (Double) arriv.get(i);
+			System.out.println("SThrough"+arrival);
+		}
+	}
+
+}
+
+import java.util.ArrayList;
+import java.util.List;
+
+import Generators.LCGExpGenerator;
+import Generators.LCGUniformGenerator;
+import eduni.simjava.Sim_entity;
+import eduni.simjava.Sim_event;
+import eduni.simjava.Sim_port;
+import eduni.simjava.Sim_stat;
+import eduni.simjava.Sim_system;
+
+public class MachiningCenter extends Sim_entity {
+  private Sim_port out;
+	private Sim_port in1;
+	private Sim_port in2;
+	private Sim_stat stat;
+	private LCGUniformGenerator delay;
+	private LCGUniformGenerator repair;
+	private LCGExpGenerator breakDown;
+	private double start = -1;
+	private double failureInterval;
+	private double repairTime;
+
+	public MachiningCenter(String name) {
+		super(name);
+		// TODO Auto-generated constructor stub
+		// port for receiving events
+		in1 = new Sim_port("In1");
+		in2 = new Sim_port("In2");
+		// port for sending events to Inspection station
+		out = new Sim_port("Out");
+		add_port(out);
+		add_port(in1);
+		add_port(in2);
+		// Calculating statistics
+		stat = new Sim_stat();
+		stat.add_measure(Sim_stat.ARRIVAL_RATE);
+		stat.add_measure(Sim_stat.SERVICE_TIME);
+		stat.add_measure(Sim_stat.RESIDENCE_TIME);
+		stat.add_measure(Sim_stat.WAITING_TIME);
+		stat.add_measure(Sim_stat.QUEUE_LENGTH);
+		set_stat(stat);
+		// Adding delay
+		delay = new LCGUniformGenerator(System.currentTimeMillis(), 0.65, 0.7);
+		repair = new LCGUniformGenerator(System.currentTimeMillis(), 8, 12);
+		breakDown = new LCGExpGenerator(System.currentTimeMillis(), 6);
+		failureInterval = breakDown.next();
+		repairTime = repair.next();
+	}
+
+	@Override
+	public void body() {
+		// TODO Auto-generated method stub
+		double delayRand;
+		while (Sim_system.running()) {
+			if (start == -1) {
+				start = Sim_system.sim_clock();
+			}
+			// System.out.println(sim_waiting());
+			// getting processing time length
+			delayRand = delay.next();
+			Sim_event e = new Sim_event();
+			// Get the next event
+			sim_get_next(e);
+			// Process the event
+			sim_process(delayRand / (double) 60);
+			// The event has completed service
+			sim_completed(e);
+			// send event for inspection
+			sim_schedule(out, 0.0, 1);
+			// break down part
+			double current = Sim_system.sim_clock() - start;
+			if (current >= failureInterval) {
+				start = Sim_system.sim_clock();
+				sim_pause(repairTime / 60);
+				failureInterval = breakDown.next();
+				repairTime = repair.next();
+			}
+		}
+
+		List[] data = stat.get_data();
+		// prininting response time
+		System.out.println("Machine");
+		List resid = (List) data[1].get(2);
+		for (int i = 0; i < resid.size(); i++) {
+			double[] residence = (double[]) resid.get(i);
+			System.out.println("Mresponse "+(residence[1] - residence[0]));
+		}
+
+		// printing interarrival time
+		System.out.println("Machine");
+		List arriv = (List) data[1].get(0);
+		// prininting response time
+		for (int i = 0; i < arriv.size(); i++) {
+			double arrival = (Double) (arriv.get(i));
+			System.out.println("MArrial "+1 / arrival);
+		}
+		System.out.println("Machine");
+		// printing service time
+		List service = (List) data[1].get(1);
+		for (int i = 0; i < service.size(); i++) {
+			double[] serv = (double[]) service.get(i);
+			System.out.println("MService "+(serv[1] - serv[0]));
+		}
+		
+		System.out.println("Machine");
+		List queue = (List) data[1].get(4);
+		for (int i = 0; i < queue.size(); i++) {
+		double [] que = (double[]) queue.get(i);
+		System.out.println("MQueue "+que[0]);
+	}
+	}
+}
+
+import java.util.List;
+
+import Generators.LCGUniformGenerator;
+import eduni.simjava.*;
+import eduni.simjava.distributions.Sim_random_obj;
+
+public class InspectionStation extends Sim_entity {
+
+  private Sim_port out1;
+	private Sim_port in;
+	private Sim_port out2;
+	private Sim_random_obj prob;
+	private Sim_stat stat;
+	private LCGUniformGenerator delay;
+
+	public InspectionStation(String name) {
+		super(name);
+		// TODO Auto-generated constructor stub
+		out1 = new Sim_port("Out1");
+		out2 = new Sim_port("Out2");
+		in = new Sim_port("In");
+		add_port(out1);
+		add_port(out2);
+		add_port(in);
+		// probability generator
+		prob = new Sim_random_obj("Probability");
+		add_generator(prob);
+		stat = new Sim_stat();
+		stat.add_measure(Sim_stat.ARRIVAL_RATE);
+		stat.add_measure(Sim_stat.SERVICE_TIME);
+		stat.add_measure(Sim_stat.RESIDENCE_TIME);
+		stat.add_measure(Sim_stat.WAITING_TIME);
+		stat.add_measure(Sim_stat.QUEUE_LENGTH);
+
+		set_stat(stat);
+		// creating delay time
+		delay = new LCGUniformGenerator(System.currentTimeMillis(), 0.75, 0.80);
+	}
+
+	public void body() {
+		double delayRand;
+		while (Sim_system.running()) {
+			// System.out.println(sim_waiting());
+			delayRand = delay.next();
+			Sim_event e = new Sim_event();
+			// Get the next event
+			sim_get_next(e);
+			// Process the event
+			sim_process(delayRand / (double) 60);
+			// The event has completed service
+			sim_completed(e);
+			double p = prob.sample();
+			if (p < 0.10) {
+				// product is bad and returned to source
+				sim_schedule(out1, 0.0, 2);
+			} else {
+				// product us good and sent to sink
+				sim_schedule(out2, 0.0, 2);
+			}
+
+		}
+		List[] data = stat.get_data();
+		// prininting response time
+		System.out.println("Ins");
+		List resid = (List) data[1].get(2);
+		for (int i = 0; i < resid.size(); i++) {
+			double[] residence = (double[]) resid.get(i);
+			System.out.println("Iresponse " + (residence[1] - residence[0]));
+		}
+
+		// printing interarrival time
+		System.out.println("Ins");
+		List arriv = (List) data[1].get(0);
+		// prininting response time
+		for (int i = 0; i < arriv.size(); i++) {
+			double arrival = (Double) (arriv.get(i));
+			System.out.println("IArrial " + 1 / arrival);
+		}
+		System.out.println("Ins");
+		// printing service time
+		List service = (List) data[1].get(1);
+		for (int i = 0; i < service.size(); i++) {
+			double[] serv = (double[]) service.get(i);
+			System.out.println("IService " + (serv[1] - serv[0]));
+		}
+
+		System.out.println("Ins");
+		List queue = (List) data[1].get(4);
+		for (int i = 0; i < queue.size(); i++) {
+			double[] que = (double[]) queue.get(i);
+			System.out.println("IQueue " + que[0]);
+		}
+	}
+
+}
+
+import eduni.simjava.Sim_stat;
+import eduni.simjava.Sim_system;
+
+public class FactorySystemMain {
+
+  public static void main(String[] args) {
+		// Initialize Sim_system
+		Sim_system.initialise();
+		// Add the source
+		Source source = new Source("Source");
+		// Add the processor
+		Sink sink = new Sink("Sink");
+		// Add disk 1
+		MachiningCenter machiningCenter = new MachiningCenter("MachiningCenter");
+		// Add disk 2
+		InspectionStation inspectionStation = new InspectionStation("InspectionStation");
+		// Link the entities' ports
+		Sim_system.link_ports("Source", "Out", "MachiningCenter", "In1");
+		Sim_system.link_ports("MachiningCenter", "Out", "InspectionStation", "In");
+		Sim_system.link_ports("InspectionStation", "Out1", "MachiningCenter", "In2");
+		Sim_system.link_ports("InspectionStation", "Out2", "Sink", "In");
+		// Run the simulation
+		//Sim_system.set_transient_condition(Sim_system.TIME_ELAPSED, 0.41);
+		Sim_system.generate_graphs(true);
+		Sim_system.set_transient_condition(Sim_system.TIME_ELAPSED, 2);
+		Sim_system.set_termination_condition(Sim_system.EVENTS_COMPLETED,
+                "MachiningCenter", 0, 100, false);
+		Sim_system.run();
+	}
+
+}
