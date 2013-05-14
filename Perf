@@ -1,0 +1,341 @@
+
+import eduni.simjava.*;
+import java.io.BufferedWriter;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+class Source extends Sim_entity {      // The class for the source
+
+    private Sim_port out;
+    private ExpGenerator delay;
+//    public static boolean finishSimulation = false;
+
+    Source(String name) {
+        super(name);
+        double seed = 50000;
+        double mean = 1 * 60; //in seconds 
+        this.delay = new ExpGenerator(seed, mean);
+        out = new Sim_port("OutSource");
+        add_port(out);
+    }
+
+    public void body() {
+
+        while (Sim_system.running()) {
+            // Send the processor a job
+            sim_schedule(out, 0.0, 0);
+
+            // Pause
+            double d = delay.next();
+            sim_pause(d);
+        }
+
+    }
+}
+
+class Source2 extends Sim_entity {      // The class for the source
+
+    private Sim_port in;
+    private Sim_port out;
+
+    Source2(String name) {
+        super(name);
+        out = new Sim_port("OutSource2");
+        in = new Sim_port("InSource2");
+        add_port(out);
+        add_port(in);
+    }
+
+    public void body() {
+        while (Sim_system.running()) {
+            // Get the next event
+            Sim_event e1 = new Sim_event();
+            sim_get_next(e1);
+            sim_completed(e1);
+            sim_schedule(out, 0.0, 0);
+        }
+    }
+}
+
+class Failure extends Sim_entity {      // The class for the Failure to the Machining Center
+
+    private Sim_port out;
+    private ExpGenerator delay;
+
+    Failure(String name) {
+        super(name);
+        double seed = 706794;
+        double mean = 6 * 60 * 60; //in seconds
+        this.delay = new ExpGenerator(seed, mean);
+        out = new Sim_port("OutFailure");
+        add_port(out);
+    }
+
+    public void body() {
+        int i = 0;
+
+        while (Sim_system.running()) {
+            // Pause
+            double d = delay.next();
+            sim_pause(d);
+
+            // Send the failure 
+            sim_schedule(out, 0.0, 666);
+            i++;
+        }
+        System.out.println("No of failures sent : " + i);
+    }
+}
+
+class Machining extends Sim_entity {        // The class for the Machining Center
+
+    private Sim_port in;
+    private Sim_port out;
+    private LCGGenerator delay;
+    private LCGGenerator repair;
+    public Sim_stat stat;
+
+    Machining(String name) {
+        super(name);
+        double seed1 = 432323;
+        double seed2 = 456296;
+        this.delay = new LCGGenerator(seed1);
+        this.repair = new LCGGenerator(seed2);
+
+        in = new Sim_port("InMachining");           // Port for receiving events from the source
+        out = new Sim_port("OutMachining");       // Port for sending events to Inspection Station
+        add_port(in);
+        add_port(out);
+
+        //statistics
+        stat = new Sim_stat();
+        stat.measure_for(new int[]{0});
+        stat.add_measure(Sim_stat.ARRIVAL_RATE);
+        stat.add_measure(Sim_stat.THROUGHPUT);
+        stat.add_measure(Sim_stat.SERVICE_TIME);
+        stat.add_measure(Sim_stat.WAITING_TIME);
+        stat.add_measure(Sim_stat.RESIDENCE_TIME);
+        stat.add_measure(Sim_stat.QUEUE_LENGTH);
+        set_stat(stat);
+    }
+
+    public void body() {
+        while (Sim_system.running()) {
+            // Get the next event
+            Sim_event e1 = new Sim_event();
+            sim_get_next(e1);
+            if (e1.get_tag() == 666) { //failure
+                double d2 = (8 * 60) + repair.next() * (4 * 60);
+                sim_pause(d2); // repair
+//                int temp = sim_cancel(new Sim_from_p(Sim_system.get_entity_id("Failure")), null);
+//                System.out.println(temp);
+            } else {
+                // Process the event
+                double d = (0.65 * 60) + delay.next() * (0.05 * 60);
+                Sim_event e2 = new Sim_event();
+                double remainingTime = sim_process_for(new Sim_from_p(Sim_system.get_entity_id("Failure")), d, e2);
+
+                if (remainingTime > 0) {//Failure happened
+
+                    double d2 = (8 * 60) + repair.next() * (4 * 60);
+                    sim_pause(d2); // repair
+//                    int temp = sim_cancel(new Sim_from_p(Sim_system.get_entity_id("Failure")), null);
+//                    System.out.println(temp);
+
+                    sim_process(remainingTime); //complete processing
+                }
+
+
+                sim_completed(e1);                // The event has completed service
+                sim_schedule(out, 0.0, e1.get_tag());    // Odd I/O jobs go to Inspection
+            }
+        }
+    }
+}
+
+class Inspection extends Sim_entity {        // The class for the Inspection Station
+
+    private Sim_port in;
+    private Sim_port out;
+    private Sim_port out2;
+    private LCGGenerator delay;
+    private LCGGenerator badProp;
+    public Sim_stat stat;
+
+    Inspection(String name) {
+        super(name);
+        double seed1 = 65765;
+        double seed2 = 456456456;
+        this.delay = new LCGGenerator(seed1);
+        this.badProp = new LCGGenerator(seed2);
+        in = new Sim_port("InInspection");           // Port for receiving events from the Machining center
+        out = new Sim_port("OutInspection");       // Port for sending events to source if bad job
+        out2 = new Sim_port("OutInspectionToShipment");
+        add_port(in);
+        add_port(out);
+        add_port(out2);
+
+        //statistics
+        stat = new Sim_stat();
+        stat.add_measure(Sim_stat.ARRIVAL_RATE);
+        stat.add_measure(Sim_stat.THROUGHPUT);
+        stat.add_measure(Sim_stat.SERVICE_TIME);
+        stat.add_measure(Sim_stat.WAITING_TIME);
+        stat.add_measure(Sim_stat.RESIDENCE_TIME);
+        stat.add_measure(Sim_stat.QUEUE_LENGTH);
+        set_stat(stat);
+    }
+
+    public void body() {
+        int badCounter = 0;
+        while (Sim_system.running()) {
+            // Get the next event
+            Sim_event e = new Sim_event();
+            sim_get_next(e);
+            if (e.get_tag() != 0) {
+                System.out.println("Error !!!!!!!!!!!");
+                System.out.println(e.get_tag());
+            }
+
+            // Process the event
+            double d = (0.75 * 60) + delay.next() * (0.05 * 60);
+            sim_process(d);
+            sim_completed(e);                // The event has completed service
+
+            // check for bad part      
+            if (badProp.next() <= 0.1) {
+                sim_schedule(out, 0.0, 0);    // Even I/O jobs go to source
+                badCounter++;
+            } else {
+                sim_schedule(out2, 0.0, 0);
+            }
+        }
+        System.out.println("Bad jobs number = " + badCounter);
+    }
+}
+
+class Shipment extends Sim_entity {      // The class for the shipment
+
+    private Sim_port in;
+    public Sim_stat stat;
+
+    Shipment(String name) {
+        super(name);
+        in = new Sim_port("InShipment");
+        add_port(in);
+
+        //statistics
+        stat = new Sim_stat();
+        stat.add_measure(Sim_stat.THROUGHPUT);
+        set_stat(stat);
+    }
+
+    public void body() {
+        while (Sim_system.running()) {
+            // Get the next event
+            Sim_event e1 = new Sim_event();
+            sim_get_next(e1);
+            sim_completed(e1);
+        }
+    }
+}
+
+public class FactorySimulation {
+
+    public static void printStatistics(List[] statistics, String componentName) throws IOException {
+
+        List<Object[]> firstList = statistics[0];
+        List<List> secondList = statistics[1];
+
+        for (int i = 0; i < firstList.size(); i++) {
+            Object[] currMeasure = firstList.get(i);
+            System.out.println(currMeasure[0]);
+            switch (Integer.parseInt(currMeasure[1].toString())) {
+                case Sim_stat.INTERVAL_BASED: {
+                    System.out.println("Interval Based");
+                    BufferedWriter out = new BufferedWriter(new FileWriter("Statistics\\" + componentName + "_" + currMeasure[0] + ".txt"));
+                    List<double[]> currData = secondList.get(i);
+                    for (int j = 0; j < currData.size(); j++) {
+//                        System.out.println("start"
+//                                + " Time: " + currData.get(j)[0] + " End Time: " + currData.get(j)[1]);
+                        out.append(currData.get(j)[0] + "," + currData.get(j)[1]);
+                        out.append("\n");
+                    }
+                    out.close();
+                    break;
+                }
+                case Sim_stat.STATE_BASED: {
+                    System.out.println("Sate Based");
+                    BufferedWriter out = new BufferedWriter(new FileWriter("Statistics\\" + componentName + "_" + currMeasure[0] + ".txt"));
+                    List<double[]> currData = secondList.get(i);
+                    for (int j = 0; j < currData.size(); j++) {
+//                        System.out.println("State : " + currData.get(j)[0] + " start"
+//                                + " Time: " + currData.get(j)[1] + " End Time: " + currData.get(j)[2]);
+                        out.append(currData.get(j)[0]
+                                + "," + currData.get(j)[1] + "," + currData.get(j)[2]);
+                        out.append("\n");
+                    }
+                    out.close();
+                    break;
+                }
+                case Sim_stat.RATE_BASED: {
+                    System.out.println("Rate Based");
+                    BufferedWriter out = new BufferedWriter(new FileWriter("Statistics\\" + componentName + "_" + currMeasure[0] + ".txt"));
+                    List<Double> currData = secondList.get(i);
+                    for (int j = 0; j < currData.size(); j++) {
+//                        System.out.println(currData.get(j));
+                        out.append(currData.get(j) + "\n");
+                    }
+                    out.close();
+                    break;
+                }
+            }
+
+            System.out.println("");
+        }
+    }
+
+    public static void main(String[] args) throws IOException {      // The main method
+        Sim_system.initialise();                    // Initialise Sim_system
+        Source source = new Source("Source");   // Add the source
+        Source2 source2 = new Source2("Source2");   // Add the source2
+        Machining machining = new Machining("Machining"); // Add the Machining Center
+        Inspection inspection = new Inspection("Inspection"); // Add the Inspection Station
+        Failure failure = new Failure("Failure"); // Add the Failure
+        Shipment shipment = new Shipment("Shipment");
+
+        // Link the entities' ports
+        Sim_system.link_ports("Source", "OutSource", "Source2", "InSource2");
+        Sim_system.link_ports("Source2", "OutSource2", "Machining", "InMachining");
+        Sim_system.link_ports("Failure", "OutFailure", "Machining", "InMachining");
+        Sim_system.link_ports("Machining", "OutMachining", "Inspection", "InInspection");
+        Sim_system.link_ports("Inspection", "OutInspection", "Source2", "InSource2");
+        Sim_system.link_ports("Inspection", "OutInspectionToShipment", "Shipment", "InShipment");
+
+
+        //set termination condition
+//        Sim_system.set_termination_condition(Sim_system.INTERVAL_ACCURACY,
+//                Sim_system.IND_REPLICATIONS,
+//                0.95,
+//                0.08,
+//                "Inspection",
+//                Sim_stat.SERVICE_TIME);
+         Sim_system.set_termination_condition(Sim_system.EVENTS_COMPLETED,
+                                               "Shipment", 0, 100000, false);
+        // Run the simulation
+        Sim_system.run();
+
+        //All Measures Data
+        List[] machining_statistics = machining.stat.get_data();
+        List[] inspection_statistics = inspection.stat.get_data();
+        List[] shipment_statistics = shipment.stat.get_data();
+
+        printStatistics(machining_statistics, "Machining");
+        printStatistics(inspection_statistics, "Inspection");
+        printStatistics(shipment_statistics, "Shipment");
+
+    }
+}
